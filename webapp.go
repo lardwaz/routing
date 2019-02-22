@@ -1,4 +1,4 @@
-package routing
+package routing //import "go.lsl.digital/gocipe/routing"
 
 import (
 	"net/http"
