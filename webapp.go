@@ -2,8 +2,6 @@ package routing
 
 import (
 	"net/http"
-
-	"github.com/gorilla/mux"
 )
 
 //ErrorHandler defines a custom error handler
@@ -41,25 +39,10 @@ func (w *responseWriter) WriteHeader(status int) {
 	}
 }
 
-//AddWebAppRouting creates routing for webapp. It attempts to serve from filesystem; with custom fallback content upon failure
-func AddWebAppRouting(router *mux.Router, prefix string, fs http.FileSystem, fallback []byte, mwf ...mux.MiddlewareFunc) error {
-	subRoute := router.PathPrefix(prefix).Subrouter()
-	errorHandler := ErrorHandler(func(w http.ResponseWriter, status int) {
+//WrapWithFallback wraps an http.Handler function in order to show fallback content on error
+func WrapWithFallback(handler http.Handler, fallback []byte) http.Handler {
+	return WrapWithErrorHandler(handler, ErrorHandler(func(w http.ResponseWriter, status int) {
 		w.WriteHeader(http.StatusOK)
 		w.Write(fallback)
-	})
-
-	for _, m := range mwf {
-		subRoute.Use(m)
-	}
-
-	subRoute.PathPrefix("/").Handler(
-		http.StripPrefix(
-			prefix,
-			WrapWithErrorHandler(http.FileServer(fs), errorHandler),
-		),
-	)
-
-	return nil
-
+	}))
 }
