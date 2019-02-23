@@ -50,12 +50,11 @@ func WrapWithFallback(handler http.Handler, fallback []byte, headers map[string]
 	}
 
 	return WrapWithErrorHandler(handler, ErrorHandler(func(w http.ResponseWriter, status int) {
-		w.WriteHeader(http.StatusOK)
-
 		for name, val := range headers {
 			w.Header().Set(name, val)
 		}
 
+		w.WriteHeader(http.StatusOK)
 		w.Write(fallback)
 	}))
 }
