@@ -40,9 +40,22 @@ func (w *responseWriter) WriteHeader(status int) {
 }
 
 //WrapWithFallback wraps an http.Handler function in order to show fallback content on error
-func WrapWithFallback(handler http.Handler, fallback []byte) http.Handler {
+func WrapWithFallback(handler http.Handler, fallback []byte, headers map[string]string) http.Handler {
+	if headers == nil {
+		headers = make(map[string]string)
+	}
+
+	if _, ok := headers["Content-Type"]; !ok {
+		headers["Content-Type"] = "text/html"
+	}
+
 	return WrapWithErrorHandler(handler, ErrorHandler(func(w http.ResponseWriter, status int) {
 		w.WriteHeader(http.StatusOK)
+
+		for name, val := range headers {
+			w.Header().Set(name, val)
+		}
+
 		w.Write(fallback)
 	}))
 }
