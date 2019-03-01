@@ -12,24 +12,34 @@ import (
 
 // WebSocketReverseProxy implements http.HandlerFunc to reverse proxy websocket requests
 type WebSocketReverseProxy struct {
-	Target string
+	Target     string
+	Connection net.Conn
+	Hijacker   http.Hijacker
 }
 
 // NewWebSocketReverseProxy creates a new websocket reverse proxy
-func NewWebSocketReverseProxy(url *url.URL) *WebSocketReverseProxy {
-	var proxy = new(WebSocketReverseProxy)
+func NewWebSocketReverseProxy(url *url.URL) (*WebSocketReverseProxy, error) {
+	proxy := new(WebSocketReverseProxy)
 	proxy.Target = fmt.Sprintf("%s:%s", url.Hostname(), url.Port())
 
-	return proxy
+	return proxy, nil
+}
+
+func (ws *WebSocketReverseProxy) connect() error {
+	var err error
+	if ws.Connection, err = net.Dial("tcp", ws.Target); err != nil {
+		return fmt.Errorf("Error dialing websocket backend %s: %s", ws.Target, err)
+	}
+
+	return nil
 }
 
 func (ws *WebSocketReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	d, err := net.Dial("tcp", ws.Target)
-	defer d.Close()
-	if err != nil {
-		http.Error(w, "Error contacting backend server.", http.StatusBadGateway)
-		log.Printf("Error dialing websocket backend %s: %s", ws.Target, err)
-		return
+	if ws.Connection == nil {
+		if err := ws.connect(); err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
 	}
 
 	hj, ok := w.(http.Hijacker)
@@ -39,13 +49,13 @@ func (ws *WebSocketReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Reques
 	}
 
 	nc, _, err := hj.Hijack()
-	defer nc.Close()
 	if err != nil {
 		log.Printf("Hijack error: %v", err)
 		return
 	}
+	defer nc.Close()
 
-	err = r.Write(d)
+	err = r.Write(ws.Connection)
 	if err != nil {
 		log.Printf("Error copying request to target: %v", err)
 		return
@@ -59,9 +69,19 @@ func (ws *WebSocketReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Reques
 			errc <- err
 		}
 	}
-	go cp(d, nc)
-	go cp(nc, d)
+	go cp(ws.Connection, nc)
+	go cp(nc, ws.Connection)
 	<-errc
+}
+
+//Close closes the ws proxy
+func (ws *WebSocketReverseProxy) Close() error {
+	if ws.Connection != nil {
+		err := ws.Connection.Close()
+		ws.Connection = nil
+		return err
+	}
+	return nil
 }
 
 // IsWebSocket determines whether or not an http request is using websocket
