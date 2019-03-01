@@ -25,6 +25,7 @@ func NewWebSocketReverseProxy(url *url.URL) *WebSocketReverseProxy {
 
 func (ws *WebSocketReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	d, err := net.Dial("tcp", ws.Target)
+	defer d.Close()
 	if err != nil {
 		http.Error(w, "Error contacting backend server.", http.StatusBadGateway)
 		log.Printf("Error dialing websocket backend %s: %s", ws.Target, err)
@@ -38,13 +39,11 @@ func (ws *WebSocketReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Reques
 	}
 
 	nc, _, err := hj.Hijack()
+	defer nc.Close()
 	if err != nil {
 		log.Printf("Hijack error: %v", err)
 		return
 	}
-
-	defer nc.Close()
-	defer d.Close()
 
 	err = r.Write(d)
 	if err != nil {
