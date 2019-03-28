@@ -18,11 +18,11 @@ type WebSocketReverseProxy struct {
 }
 
 // NewWebSocketReverseProxy creates a new websocket reverse proxy
-func NewWebSocketReverseProxy(url *url.URL) (*WebSocketReverseProxy, error) {
+func NewWebSocketReverseProxy(url *url.URL) *WebSocketReverseProxy {
 	proxy := new(WebSocketReverseProxy)
 	proxy.Target = fmt.Sprintf("%s:%s", url.Hostname(), url.Port())
 
-	return proxy, nil
+	return proxy
 }
 
 func (ws *WebSocketReverseProxy) connect() error {
@@ -72,6 +72,7 @@ func (ws *WebSocketReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Reques
 	go cp(ws.Connection, nc)
 	go cp(nc, ws.Connection)
 	<-errc
+	ws.Connection = nil
 }
 
 //Close closes the ws proxy
