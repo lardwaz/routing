@@ -4,10 +4,10 @@ import (
 	"net/http"
 )
 
-//ErrorHandler defines a custom error handler
+// ErrorHandler defines a custom error handler
 type ErrorHandler func(w http.ResponseWriter, status int)
 
-//WrapWithErrorHandler wraps an http.Handler function with a custom error handling func
+// WrapWithErrorHandler wraps an http.Handler function with a custom error handling func
 func WrapWithErrorHandler(next http.Handler, errorHandler ErrorHandler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w = &responseWriter{w, errorHandler, false}
@@ -39,7 +39,7 @@ func (w *responseWriter) WriteHeader(status int) {
 	}
 }
 
-//WrapWithFallback wraps an http.Handler function in order to show fallback content on error
+// WrapWithFallback wraps an http.Handler function in order to show fallback content on error
 func WrapWithFallback(handler http.Handler, fallback []byte, headers map[string]string) http.Handler {
 	if headers == nil {
 		headers = make(map[string]string)
