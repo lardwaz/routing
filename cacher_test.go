@@ -19,6 +19,7 @@ func TestServeHTTP(t *testing.T) {
 		w.Header().Set("Date", when)
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"status": "ok"}`))
+
 		numRequests++
 	})
 	srv := httptest.NewServer(mux)
@@ -32,7 +33,7 @@ func TestServeHTTP(t *testing.T) {
 	}
 
 	type result struct {
-		cache      []byte
+		content    []byte
 		header     http.Header
 		statusCode int
 	}
@@ -51,7 +52,7 @@ func TestServeHTTP(t *testing.T) {
 				interval: time.Second,
 			},
 			result: result{
-				cache: []byte(`{"status": "ok"}`),
+				content: []byte(`{"status": "ok"}`),
 				header: http.Header{
 					"Content-Length": []string{"16"},
 					"Content-Type":   []string{"application/json"},
@@ -86,14 +87,18 @@ func TestServeHTTP(t *testing.T) {
 				return
 			}
 
-			if !reflect.DeepEqual(rs.cache, cache.Content) {
-				t.Errorf("cache not equal. expected %s obtained %s\n", rs.cache, b)
-			} else if !reflect.DeepEqual(rs.cache, b) {
-				t.Errorf("<response> cache not equal. expected %s obtained %s\n", rs.cache, b)
+			if !reflect.DeepEqual(rs.content, cache.Content) {
+				t.Errorf("cache content not equal. expected %s obtained %s\n", rs.content, cache.Content)
+			} else if !reflect.DeepEqual(rs.content, b) {
+				t.Errorf("<response> cache content not equal. expected %s obtained %s\n", rs.content, b)
 			}
 
+			// TODO: find a way to check for Etag
+			rs.header.Set("Etag", cache.Hash)
+			cache.Header.Set("Etag", cache.Hash)
+
 			if !reflect.DeepEqual(rs.header, cache.Header) {
-				t.Errorf("header not equal. expected %v obtained %v\n", rs.header, r.Header)
+				t.Errorf("header not equal. expected %v obtained %v\n", rs.header, cache.Header)
 			} else if !reflect.DeepEqual(rs.header, r.Header) {
 				t.Errorf("<response> header not equal. expected %v obtained %v\n", rs.header, r.Header)
 			}

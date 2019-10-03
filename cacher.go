@@ -1,6 +1,8 @@
 package routing
 
 import (
+	"crypto/sha1"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"sync"
@@ -16,6 +18,7 @@ type CacheItem struct {
 	ContentLength int64
 	Header        http.Header
 	StatusCode    int
+	Hash          string
 
 	interval time.Duration
 	running  bool
@@ -52,6 +55,7 @@ func (c *CacheItem) Fetch() error {
 	c.ContentLength = resp.ContentLength
 	c.Header = resp.Header.Clone()
 	c.StatusCode = resp.StatusCode
+	c.Hash = fmt.Sprintf("%x", sha1.Sum(b))
 
 	return nil
 }
@@ -146,11 +150,19 @@ func (c *ResourceCacher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if match := r.Header.Get("If-None-Match"); match != "" {
+		if cache.Hash == match {
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+	}
+
 	for k, v := range cache.Header {
 		for _, v2 := range v {
 			w.Header().Set(k, v2)
 		}
 	}
+	w.Header().Set("Etag", cache.Hash)
 	w.WriteHeader(cache.StatusCode)
 	w.Write(cache.Content)
 }
