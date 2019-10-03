@@ -41,6 +41,8 @@ func TestServeHTTP(t *testing.T) {
 		statusCode int
 	}
 
+	commonVaryHeaders := []string{"Origin", "Access-Control-Request-Method", "Access-Control-Request-Headers"}
+
 	tests := []struct {
 		name   string
 		test   test
@@ -61,6 +63,7 @@ func TestServeHTTP(t *testing.T) {
 					"Date":           []string{when},
 					"Etag":           []string{fmt.Sprintf("%x", sha1.Sum([]byte(`{"status": "ok"}`)))},
 					"Cache-Control":  []string{fmt.Sprintf("max-age=%d", time.Second/time.Second)},
+					"Vary":           commonVaryHeaders,
 				},
 				statusCode: http.StatusOK,
 			},
@@ -82,6 +85,7 @@ func TestServeHTTP(t *testing.T) {
 					"Date":           []string{when},
 					"Etag":           []string{fmt.Sprintf("%x", sha1.Sum([]byte(`{"status": "ok"}`)))},
 					"Cache-Control":  []string{fmt.Sprintf("max-age=%d", time.Second/time.Second)},
+					"Vary":           commonVaryHeaders,
 				},
 				statusCode: http.StatusOK,
 			},
@@ -96,7 +100,7 @@ func TestServeHTTP(t *testing.T) {
 			rs := tt.result
 
 			c := NewResourceCacher()
-			cache := c.AddCacheItem(ts.alias, ts.method, srv.URL+"/get", ts.interval, ts.allowedOrigins...)
+			c.AddCacheItem(ts.alias, ts.method, srv.URL+"/get", ts.interval, ts.allowedOrigins...)
 			s := httptest.NewServer(c)
 			defer s.Close()
 
@@ -113,21 +117,18 @@ func TestServeHTTP(t *testing.T) {
 				return
 			}
 
-			if !reflect.DeepEqual(rs.content, cache.Content) {
-				t.Errorf("cache content not equal. expected %s obtained %s\n", rs.content, cache.Content)
-			} else if !reflect.DeepEqual(rs.content, b) {
+			if !reflect.DeepEqual(rs.content, b) {
 				t.Errorf("<response> cache content not equal. expected %s obtained %s\n", rs.content, b)
 			}
 
-			if !reflect.DeepEqual(rs.header, cache.Header) {
-				t.Errorf("header not equal. expected %v obtained %v\n", rs.header, cache.Header)
-			} else if !reflect.DeepEqual(rs.header, r.Header) {
+			// FIXME: must be added to testcase
+			rs.header.Set("Access-Control-Allow-Origin", ts.origin)
+
+			if !reflect.DeepEqual(rs.header, r.Header) {
 				t.Errorf("<response> header not equal. expected %v obtained %v\n", rs.header, r.Header)
 			}
 
-			if rs.statusCode != cache.StatusCode {
-				t.Errorf("statusCode not equal. expected %v obtained %v\n", rs.statusCode, r.StatusCode)
-			} else if rs.statusCode != r.StatusCode {
+			if rs.statusCode != r.StatusCode {
 				t.Errorf("<response> statusCode not equal. expected %v obtained %v\n", rs.statusCode, r.StatusCode)
 			}
 		})
