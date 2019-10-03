@@ -196,10 +196,13 @@ func (c *ResourceCacher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set(k, v2)
 		}
 	}
+
 	w.Header().Add("Vary", "Origin")
 	w.Header().Add("Vary", "Access-Control-Request-Method")
 	w.Header().Add("Vary", "Access-Control-Request-Headers")
-	w.Header().Set("Access-Control-Allow-Origin", origin)
+	if origin != "" {
+		w.Header().Set("Access-Control-Allow-Origin", origin)
+	}
 	w.WriteHeader(cache.StatusCode)
 	w.Write(cache.Content)
 }

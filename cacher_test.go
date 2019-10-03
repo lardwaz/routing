@@ -80,12 +80,13 @@ func TestServeHTTP(t *testing.T) {
 			result: result{
 				content: []byte(`{"status": "ok"}`),
 				header: http.Header{
-					"Content-Length": []string{"16"},
-					"Content-Type":   []string{"application/json"},
-					"Date":           []string{when},
-					"Etag":           []string{fmt.Sprintf("%x", sha1.Sum([]byte(`{"status": "ok"}`)))},
-					"Cache-Control":  []string{fmt.Sprintf("max-age=%d", time.Second/time.Second)},
-					"Vary":           commonVaryHeaders,
+					"Content-Length":              []string{"16"},
+					"Content-Type":                []string{"application/json"},
+					"Date":                        []string{when},
+					"Etag":                        []string{fmt.Sprintf("%x", sha1.Sum([]byte(`{"status": "ok"}`)))},
+					"Cache-Control":               []string{fmt.Sprintf("max-age=%d", time.Second/time.Second)},
+					"Access-Control-Allow-Origin": []string{"http://good.origin"},
+					"Vary":                        commonVaryHeaders,
 				},
 				statusCode: http.StatusOK,
 			},
@@ -120,9 +121,6 @@ func TestServeHTTP(t *testing.T) {
 			if !reflect.DeepEqual(rs.content, b) {
 				t.Errorf("<response> cache content not equal. expected %s obtained %s\n", rs.content, b)
 			}
-
-			// FIXME: must be added to testcase
-			rs.header.Set("Access-Control-Allow-Origin", ts.origin)
 
 			if !reflect.DeepEqual(rs.header, r.Header) {
 				t.Errorf("<response> header not equal. expected %v obtained %v\n", rs.header, r.Header)
