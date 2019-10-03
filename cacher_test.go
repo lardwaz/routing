@@ -92,11 +92,11 @@ func TestServeHTTP(t *testing.T) {
 				t.Errorf("<response> cache not equal. expected %s obtained %s\n", rs.cache, b)
 			}
 
-			// if !reflect.DeepEqual(rs.header, c.header) {
-			// 	t.Errorf("header not equal. expected %v obtained %v\n", rs.header, r.Header)
-			// } else if !reflect.DeepEqual(rs.header, r.Header) {
-			// 	t.Errorf("<response> header not equal. expected %v obtained %v\n", rs.header, r.Header)
-			// }
+			if !reflect.DeepEqual(rs.header, cache.Header) {
+				t.Errorf("header not equal. expected %v obtained %v\n", rs.header, r.Header)
+			} else if !reflect.DeepEqual(rs.header, r.Header) {
+				t.Errorf("<response> header not equal. expected %v obtained %v\n", rs.header, r.Header)
+			}
 
 			if rs.statusCode != cache.StatusCode {
 				t.Errorf("statusCode not equal. expected %v obtained %v\n", rs.statusCode, r.StatusCode)

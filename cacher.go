@@ -2,7 +2,6 @@ package routing
 
 import (
 	"io/ioutil"
-	"log"
 	"net/http"
 	"sync"
 	"time"
@@ -63,7 +62,6 @@ func (c *CacheItem) StartFetcher() {
 		// Already running
 		return
 	}
-	log.Println("started")
 
 	c.running = true
 	ticker := time.NewTicker(c.interval)
@@ -148,6 +146,11 @@ func (c *ResourceCacher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	for k, v := range cache.Header {
+		for _, v2 := range v {
+			w.Header().Set(k, v2)
+		}
+	}
 	w.WriteHeader(cache.StatusCode)
 	w.Write(cache.Content)
 }
