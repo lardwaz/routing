@@ -11,15 +11,16 @@ import (
 
 // CacheItem represents a single resource to cache
 type CacheItem struct {
-	Alias         string
-	Method        string
-	URL           string
-	Interval      time.Duration
-	Content       []byte
-	ContentLength int64
-	Header        http.Header
-	StatusCode    int
-	Hash          string
+	Alias          string
+	Method         string
+	URL            string
+	Interval       time.Duration
+	Content        []byte
+	ContentLength  int64
+	Header         http.Header
+	StatusCode     int
+	Hash           string
+	AllowedOrigins []string
 
 	running bool
 	stop    chan struct{}
@@ -64,6 +65,27 @@ func (c *CacheItem) Fetch() error {
 	return nil
 }
 
+// IsOriginAllowed checks if origin is valid
+func (c *CacheItem) IsOriginAllowed(origin string) bool {
+	// Check if origin check disabled
+	if c.AllowedOrigins == nil || len(c.AllowedOrigins) == 0 {
+		return true
+	}
+
+	// No need to go any further
+	if origin == "" {
+		return false
+	}
+
+	for _, o := range c.AllowedOrigins {
+		if o == origin {
+			return true
+		}
+	}
+
+	return false
+}
+
 // StartFetcher starts the automatic fetcher
 func (c *CacheItem) StartFetcher() {
 	if c.running {
@@ -105,12 +127,13 @@ func NewResourceCacher() *ResourceCacher {
 }
 
 // AddCacheItem adds a new cache item to the resource cacher
-func (c *ResourceCacher) AddCacheItem(alias, method, url string, interval time.Duration) *CacheItem {
+func (c *ResourceCacher) AddCacheItem(alias, method, url string, interval time.Duration, allowedOrigins ...string) *CacheItem {
 	cache := &CacheItem{
-		Alias:    alias,
-		Method:   method,
-		URL:      url,
-		Interval: interval,
+		Alias:          alias,
+		Method:         method,
+		URL:            url,
+		Interval:       interval,
+		AllowedOrigins: allowedOrigins,
 	}
 
 	cache.StartFetcher()
@@ -151,6 +174,12 @@ func (c *ResourceCacher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte("Invalid alias"))
+		return
+	}
+
+	if !cache.IsOriginAllowed(r.Header.Get("Origin")) {
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte("Invalid Origin"))
 		return
 	}
 

@@ -28,10 +28,11 @@ func TestServeHTTP(t *testing.T) {
 	defer srv.Close()
 
 	type test struct {
-		alias    string
-		method   string
-		url      string
-		interval time.Duration
+		alias          string
+		method         string
+		interval       time.Duration
+		origin         string
+		allowedOrigins []string
 	}
 
 	type result struct {
@@ -64,6 +65,27 @@ func TestServeHTTP(t *testing.T) {
 				statusCode: http.StatusOK,
 			},
 		},
+		{
+			name: "good origin",
+			test: test{
+				alias:          "goodorigin",
+				method:         http.MethodGet,
+				interval:       time.Second,
+				origin:         "http://good.origin",
+				allowedOrigins: []string{"http://good.origin"},
+			},
+			result: result{
+				content: []byte(`{"status": "ok"}`),
+				header: http.Header{
+					"Content-Length": []string{"16"},
+					"Content-Type":   []string{"application/json"},
+					"Date":           []string{when},
+					"Etag":           []string{fmt.Sprintf("%x", sha1.Sum([]byte(`{"status": "ok"}`)))},
+					"Cache-Control":  []string{fmt.Sprintf("max-age=%d", time.Second/time.Second)},
+				},
+				statusCode: http.StatusOK,
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -74,11 +96,12 @@ func TestServeHTTP(t *testing.T) {
 			rs := tt.result
 
 			c := NewResourceCacher()
-			cache := c.AddCacheItem(ts.alias, ts.method, srv.URL+"/get", ts.interval)
+			cache := c.AddCacheItem(ts.alias, ts.method, srv.URL+"/get", ts.interval, ts.allowedOrigins...)
 			s := httptest.NewServer(c)
 			defer s.Close()
 
 			req := httptest.NewRequest(ts.method, s.URL+"/?alias="+ts.alias, nil)
+			req.Header.Set("Origin", ts.origin)
 			w := httptest.NewRecorder()
 			c.ServeHTTP(w, req)
 			r := w.Result()
