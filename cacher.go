@@ -2,11 +2,10 @@ package routing
 
 import (
 	"io/ioutil"
+	"log"
 	"net/http"
 	"sync"
 	"time"
-
-	"github.com/gorilla/mux"
 )
 
 // CacheItem represents a single resource to cache
@@ -64,9 +63,11 @@ func (c *CacheItem) StartFetcher() {
 		// Already running
 		return
 	}
+	log.Println("started")
 
 	c.running = true
 	ticker := time.NewTicker(c.interval)
+	c.Fetch()
 	go func() {
 		select {
 		case <-ticker.C:
@@ -98,7 +99,7 @@ func NewResourceCacher() *ResourceCacher {
 }
 
 // AddCacheItem adds a new cache item to the resource cacher
-func (c *ResourceCacher) AddCacheItem(alias, method, url string, interval time.Duration) {
+func (c *ResourceCacher) AddCacheItem(alias, method, url string, interval time.Duration) *CacheItem {
 	cache := &CacheItem{
 		Alias:    alias,
 		Method:   method,
@@ -109,6 +110,8 @@ func (c *ResourceCacher) AddCacheItem(alias, method, url string, interval time.D
 	cache.StartFetcher()
 
 	c.cache[alias] = cache
+
+	return cache
 }
 
 // Start autofetching/caching
@@ -127,15 +130,16 @@ func (c *ResourceCacher) Stop() {
 
 // ServeHTTP to implement net/http.Handler for ResourceCacher
 func (c *ResourceCacher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
+	query := r.URL.Query()
 
 	// Get alias from url
-	alias, ok := vars["alias"]
+	aliases, ok := query["alias"]
 	if !ok {
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte("Missing alias"))
 		return
 	}
+	alias := aliases[0]
 
 	cache, ok := c.cache[alias]
 	if !ok {

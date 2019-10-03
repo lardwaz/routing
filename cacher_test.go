@@ -25,6 +25,7 @@ func TestServeHTTP(t *testing.T) {
 	defer srv.Close()
 
 	type test struct {
+		alias    string
 		method   string
 		url      string
 		interval time.Duration
@@ -44,8 +45,9 @@ func TestServeHTTP(t *testing.T) {
 		{
 			name: "normal get",
 			test: test{
+				alias:    "normalget",
 				method:   http.MethodGet,
-				url:      "http://localhost:9999/get",
+				url:      "http://localhost:9999/get?alias=normalget",
 				interval: time.Second,
 			},
 			result: result{
@@ -60,15 +62,19 @@ func TestServeHTTP(t *testing.T) {
 		},
 	}
 
-	for i, tt := range tests {
+	for _, tt := range tests {
 		numRequests = 0
-		runner := func(i int, ts test, rs result) {
 
-			c := NewResourceCacher(ts.method, srv.URL+"/get", ts.interval)
+		t.Run(tt.name, func(t *testing.T) {
+			ts := tt.test
+			rs := tt.result
+
+			c := NewResourceCacher()
+			cache := c.AddCacheItem(ts.alias, ts.method, srv.URL+"/get", ts.interval)
 			s := httptest.NewServer(c)
 			defer s.Close()
 
-			req := httptest.NewRequest(ts.method, s.URL, nil)
+			req := httptest.NewRequest(ts.method, s.URL+"/?alias="+ts.alias, nil)
 			w := httptest.NewRecorder()
 			c.ServeHTTP(w, req)
 			r := w.Result()
@@ -76,30 +82,27 @@ func TestServeHTTP(t *testing.T) {
 			b, err := ioutil.ReadAll(r.Body)
 			defer r.Body.Close()
 			if err != nil {
-				t.Errorf("[%d] read error: %s", i, err)
+				t.Errorf("read error: %s", err)
 				return
 			}
 
-			if !reflect.DeepEqual(rs.cache, c.cache) {
-				t.Errorf("[%d] cache not equal. expected %s obtained %s\n", i, rs.cache, b)
+			if !reflect.DeepEqual(rs.cache, cache.Content) {
+				t.Errorf("cache not equal. expected %s obtained %s\n", rs.cache, b)
 			} else if !reflect.DeepEqual(rs.cache, b) {
-				t.Errorf("[%d] <response> cache not equal. expected %s obtained %s\n", i, rs.cache, b)
+				t.Errorf("<response> cache not equal. expected %s obtained %s\n", rs.cache, b)
 			}
 
 			// if !reflect.DeepEqual(rs.header, c.header) {
-			// 	t.Errorf("[%d] header not equal. expected %v obtained %v\n", i, rs.header, r.Header)
+			// 	t.Errorf("header not equal. expected %v obtained %v\n", rs.header, r.Header)
 			// } else if !reflect.DeepEqual(rs.header, r.Header) {
-			// 	t.Errorf("[%d] <response> header not equal. expected %v obtained %v\n", i, rs.header, r.Header)
+			// 	t.Errorf("<response> header not equal. expected %v obtained %v\n", rs.header, r.Header)
 			// }
 
-			if rs.statusCode != c.statusCode {
-				t.Errorf("[%d] statusCode not equal. expected %v obtained %v\n", i, rs.statusCode, r.StatusCode)
+			if rs.statusCode != cache.StatusCode {
+				t.Errorf("statusCode not equal. expected %v obtained %v\n", rs.statusCode, r.StatusCode)
 			} else if rs.statusCode != r.StatusCode {
-				t.Errorf("[%d] <response> statusCode not equal. expected %v obtained %v\n", i, rs.statusCode, r.StatusCode)
+				t.Errorf("<response> statusCode not equal. expected %v obtained %v\n", rs.statusCode, r.StatusCode)
 			}
-		}
-
-		runner(i, tt.test, tt.result)
-		runner(i, tt.test, tt.result)
+		})
 	}
 }
