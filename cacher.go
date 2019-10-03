@@ -14,16 +14,16 @@ type CacheItem struct {
 	Alias         string
 	Method        string
 	URL           string
+	Interval      time.Duration
 	Content       []byte
 	ContentLength int64
 	Header        http.Header
 	StatusCode    int
 	Hash          string
 
-	interval time.Duration
-	running  bool
-	stop     chan struct{}
-	lock     sync.Mutex
+	running bool
+	stop    chan struct{}
+	lock    sync.Mutex
 }
 
 // Fetch makes the request to obtain the resource and caches the result
@@ -53,9 +53,13 @@ func (c *CacheItem) Fetch() error {
 
 	c.Content = b
 	c.ContentLength = resp.ContentLength
-	c.Header = resp.Header.Clone()
 	c.StatusCode = resp.StatusCode
 	c.Hash = fmt.Sprintf("%x", sha1.Sum(b))
+	c.Header = resp.Header.Clone()
+
+	// Caching stuffs
+	c.Header.Set("Etag", c.Hash)
+	c.Header.Set("Cache-Control", fmt.Sprintf("max-age=%d", c.Interval/time.Second))
 
 	return nil
 }
@@ -68,7 +72,7 @@ func (c *CacheItem) StartFetcher() {
 	}
 
 	c.running = true
-	ticker := time.NewTicker(c.interval)
+	ticker := time.NewTicker(c.Interval)
 	c.Fetch()
 	go func() {
 		select {
@@ -106,7 +110,7 @@ func (c *ResourceCacher) AddCacheItem(alias, method, url string, interval time.D
 		Alias:    alias,
 		Method:   method,
 		URL:      url,
-		interval: interval,
+		Interval: interval,
 	}
 
 	cache.StartFetcher()
@@ -162,7 +166,6 @@ func (c *ResourceCacher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set(k, v2)
 		}
 	}
-	w.Header().Set("Etag", cache.Hash)
 	w.WriteHeader(cache.StatusCode)
 	w.Write(cache.Content)
 }

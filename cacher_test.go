@@ -1,6 +1,8 @@
 package routing
 
 import (
+	"crypto/sha1"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
@@ -48,7 +50,6 @@ func TestServeHTTP(t *testing.T) {
 			test: test{
 				alias:    "normalget",
 				method:   http.MethodGet,
-				url:      "http://localhost:9999/get?alias=normalget",
 				interval: time.Second,
 			},
 			result: result{
@@ -57,6 +58,8 @@ func TestServeHTTP(t *testing.T) {
 					"Content-Length": []string{"16"},
 					"Content-Type":   []string{"application/json"},
 					"Date":           []string{when},
+					"Etag":           []string{fmt.Sprintf("%x", sha1.Sum([]byte(`{"status": "ok"}`)))},
+					"Cache-Control":  []string{fmt.Sprintf("max-age=%d", time.Second/time.Second)},
 				},
 				statusCode: http.StatusOK,
 			},
@@ -92,10 +95,6 @@ func TestServeHTTP(t *testing.T) {
 			} else if !reflect.DeepEqual(rs.content, b) {
 				t.Errorf("<response> cache content not equal. expected %s obtained %s\n", rs.content, b)
 			}
-
-			// TODO: find a way to check for Etag
-			rs.header.Set("Etag", cache.Hash)
-			cache.Header.Set("Etag", cache.Hash)
 
 			if !reflect.DeepEqual(rs.header, cache.Header) {
 				t.Errorf("header not equal. expected %v obtained %v\n", rs.header, cache.Header)
