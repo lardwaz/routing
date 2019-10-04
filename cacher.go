@@ -114,15 +114,13 @@ func (c *CacheItem) StopFetcher() {
 
 // ResourceCacher creates a reverse proxy that caches the results
 type ResourceCacher struct {
-	stop  chan struct{}
-	cache map[string]*CacheItem
+	caches map[string]*CacheItem
 }
 
 // NewResourceCacher creates a new resource cacher
 func NewResourceCacher() *ResourceCacher {
 	return &ResourceCacher{
-		cache: make(map[string]*CacheItem),
-		stop:  make(chan struct{}),
+		caches: make(map[string]*CacheItem),
 	}
 }
 
@@ -138,21 +136,21 @@ func (c *ResourceCacher) AddCacheItem(alias, method, url string, interval time.D
 
 	cache.StartFetcher()
 
-	c.cache[alias] = cache
+	c.caches[alias] = cache
 
 	return cache
 }
 
 // Start autofetching/caching
 func (c *ResourceCacher) Start() {
-	for _, cacheItem := range c.cache {
+	for _, cacheItem := range c.caches {
 		cacheItem.StartFetcher()
 	}
 }
 
 // Stop autofetching/caching
 func (c *ResourceCacher) Stop() {
-	for _, cacheItem := range c.cache {
+	for _, cacheItem := range c.caches {
 		cacheItem.StopFetcher()
 	}
 }
@@ -170,7 +168,7 @@ func (c *ResourceCacher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	alias := aliases[0]
 
-	cache, ok := c.cache[alias]
+	cache, ok := c.caches[alias]
 	if !ok {
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte("Invalid alias"))
