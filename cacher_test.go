@@ -101,7 +101,7 @@ func TestServeHTTP(t *testing.T) {
 			rs := tt.result
 
 			c := NewResourceCacher()
-			c.AddCacheItem(ts.alias, ts.method, srv.URL+"/get", ts.interval, ts.allowedOrigins...)
+			c.AddResource(ts.alias, ts.method, srv.URL+"/get", ts.interval, ts.allowedOrigins...)
 			s := httptest.NewServer(c)
 			defer s.Close()
 
