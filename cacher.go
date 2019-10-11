@@ -67,8 +67,7 @@ func (c *CacheItem) Fetch() error {
 
 // IsOriginAllowed checks if origin is valid
 func (c *CacheItem) IsOriginAllowed(origin string) bool {
-	// Check if origin check disabled
-	if c.AllowedOrigins == nil || len(c.AllowedOrigins) == 0 {
+	if !c.isOriginCheckEnabled() {
 		return true
 	}
 
@@ -86,6 +85,11 @@ func (c *CacheItem) IsOriginAllowed(origin string) bool {
 	return false
 }
 
+func (c *CacheItem) isOriginCheckEnabled() bool {
+	// Check if origin check enabled
+	return c.AllowedOrigins != nil && len(c.AllowedOrigins) != 0
+}
+
 // StartFetcher starts the automatic fetcher
 func (c *CacheItem) StartFetcher() {
 	if c.running {
@@ -97,12 +101,14 @@ func (c *CacheItem) StartFetcher() {
 	ticker := time.NewTicker(c.Interval)
 	c.Fetch()
 	go func() {
-		select {
-		case <-ticker.C:
-			c.Fetch()
-		case <-c.stop:
-			c.running = false
-			return
+		for {
+			select {
+			case <-ticker.C:
+				c.Fetch()
+			case <-c.stop:
+				c.running = false
+				return
+			}
 		}
 	}()
 }
