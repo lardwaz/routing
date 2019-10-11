@@ -1,7 +1,8 @@
-package routing
+package routing_test
 
 import (
 	"crypto/sha1"
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -9,6 +10,8 @@ import (
 	"reflect"
 	"testing"
 	"time"
+
+	"go.lsl.digital/lardwaz/routing"
 )
 
 func TestServeHTTP(t *testing.T) {
@@ -33,6 +36,7 @@ func TestServeHTTP(t *testing.T) {
 		interval       time.Duration
 		origin         string
 		allowedOrigins []string
+		transformFn    routing.TransformFn
 	}
 
 	type result struct {
@@ -91,6 +95,44 @@ func TestServeHTTP(t *testing.T) {
 				statusCode: http.StatusOK,
 			},
 		},
+		{
+			name: "simple transform fn",
+			test: test{
+				alias:    "simpletransformfn",
+				method:   http.MethodGet,
+				interval: time.Second,
+				transformFn: func(in []byte) []byte {
+					type result struct {
+						Status string `json:"status"`
+					}
+					var res result
+					if err := json.Unmarshal(in, &res); err != nil {
+						return nil
+					}
+
+					res.Status = "transformed"
+
+					newRes, err := json.Marshal(res)
+					if err != nil {
+						return nil
+					}
+
+					return newRes
+				},
+			},
+			result: result{
+				content: []byte(`{"status":"transformed"}`),
+				header: http.Header{
+					"Content-Length": []string{"24"},
+					"Content-Type":   []string{"application/json"},
+					"Date":           []string{when},
+					"Etag":           []string{fmt.Sprintf("%x", sha1.Sum([]byte(`{"status":"transformed"}`)))},
+					"Cache-Control":  []string{fmt.Sprintf("max-age=%d", time.Second/time.Second)},
+					"Vary":           commonVaryHeaders,
+				},
+				statusCode: http.StatusOK,
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -100,8 +142,8 @@ func TestServeHTTP(t *testing.T) {
 			ts := tt.test
 			rs := tt.result
 
-			c := NewResourceCacher()
-			c.AddResource(ts.alias, ts.method, srv.URL+"/get", ts.interval, ts.allowedOrigins...)
+			c := routing.NewResourceCacher()
+			c.AddResource(ts.alias, ts.method, srv.URL+"/get", ts.interval, ts.transformFn, ts.allowedOrigins...)
 			s := httptest.NewServer(c)
 			defer s.Close()
 

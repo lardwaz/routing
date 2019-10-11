@@ -9,6 +9,9 @@ import (
 	"time"
 )
 
+// TransformFn takes a cache content and transforms it
+type TransformFn func(in []byte) (out []byte)
+
 // Resource represents a single resource to cache
 type Resource struct {
 	Alias          string
@@ -16,11 +19,11 @@ type Resource struct {
 	URL            string
 	Interval       time.Duration
 	Content        []byte
-	ContentLength  int64
 	Header         http.Header
 	StatusCode     int
 	Hash           string
 	AllowedOrigins []string
+	TransformFn    TransformFn
 
 	running bool
 	stop    chan struct{}
@@ -52,8 +55,12 @@ func (r *Resource) Fetch() error {
 		return err
 	}
 
+	if r.TransformFn != nil {
+		b = r.TransformFn(b)
+		resp.Header.Set("Content-Length", fmt.Sprintf("%d", len(b)))
+	}
+
 	r.Content = b
-	r.ContentLength = resp.ContentLength
 	r.StatusCode = resp.StatusCode
 	r.Hash = fmt.Sprintf("%x", sha1.Sum(b))
 	r.Header = resp.Header.Clone()
@@ -131,13 +138,14 @@ func NewResourceCacher() *ResourceCacher {
 }
 
 // AddResource adds a new cache item to the resource cacher
-func (c *ResourceCacher) AddResource(alias, method, url string, interval time.Duration, allowedOrigins ...string) *Resource {
+func (c *ResourceCacher) AddResource(alias, method, url string, interval time.Duration, t TransformFn, allowedOrigins ...string) *Resource {
 	cache := &Resource{
 		Alias:          alias,
 		Method:         method,
 		URL:            url,
 		Interval:       interval,
 		AllowedOrigins: allowedOrigins,
+		TransformFn:    t,
 	}
 
 	cache.StartFetcher()
