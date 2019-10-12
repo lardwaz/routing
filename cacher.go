@@ -218,7 +218,7 @@ func NewResourceCacher(opts *Options) *ResourceCacher {
 	return rc
 }
 
-// AddResource adds a new cache item to the resource cacher
+// AddResource adds a new resource to the resource cacher
 func (c *ResourceCacher) AddResource(res *Resource) (*Resource, error) {
 	if res.Alias == "" {
 		return nil, errors.New("missing alias")
@@ -243,6 +243,20 @@ func (c *ResourceCacher) AddResource(res *Resource) (*Resource, error) {
 	res.StartFetcher()
 
 	c.resources[res.Alias] = res
+
+	return res, nil
+}
+
+// RemoveResource removes an existing resource from the resource cacher
+func (c *ResourceCacher) RemoveResource(alias string) (*Resource, error) {
+	res, ok := c.resources[alias]
+	if !ok {
+		return nil, errors.New("no resource found")
+	}
+
+	c.sseServer.CloseChannel(alias)
+
+	delete(c.resources, alias)
 
 	return res, nil
 }
