@@ -143,6 +143,15 @@ func (r *Resource) StopFetcher() {
 	r.stopFetcher <- struct{}{}
 }
 
+// WriteHeaders write the header to a response writer
+func (r *Resource) WriteHeaders(w http.ResponseWriter) {
+	for k, v := range r.Header {
+		for _, v2 := range v {
+			w.Header().Set(k, v2)
+		}
+	}
+}
+
 // Options represents a set of resource cacher options
 type Options struct {
 	EnableSSE bool
@@ -273,6 +282,15 @@ func (c *ResourceCacher) SSEHTTPHandler() http.Handler {
 			return
 		}
 
+		resource.WriteHeaders(w)
+
+		w.Header().Add("Vary", "Origin")
+		w.Header().Add("Vary", "Access-Control-Request-Method")
+		w.Header().Add("Vary", "Access-Control-Request-Headers")
+		if origin != "" {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+		}
+
 		c.sseServer.ServeHTTP(w, r)
 	})
 }
@@ -307,11 +325,7 @@ func (c *ResourceCacher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	for k, v := range resource.Header {
-		for _, v2 := range v {
-			w.Header().Set(k, v2)
-		}
-	}
+	resource.WriteHeaders(w)
 
 	w.Header().Add("Vary", "Origin")
 	w.Header().Add("Vary", "Access-Control-Request-Method")
