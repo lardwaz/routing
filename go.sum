@@ -1,8 +1,2 @@
-github.com/alexandrevicenzi/go-sse v0.0.0-20191008221740-c629c4a96646 h1:x8igtnys4yXMEMG0KGb8CJYz2sT+/69cO0W+/XewCyk=
-github.com/alexandrevicenzi/go-sse v0.0.0-20191008221740-c629c4a96646/go.mod h1:BLBuvd1uY9dCX660zu1fzsmr0Cqt3VPqK1e5fPfV6wc=
-github.com/gorilla/mux v1.7.0 h1:tOSd0UKHQd6urX6ApfOn4XdBMY6Sh1MfxV3kmaazO+U=
-github.com/gorilla/mux v1.7.0/go.mod h1:1lud6UwP+6orDFRuTfBEV8e9/aOM/c4fVVCaMa2zaAs=
-github.com/pkg/errors v0.8.1 h1:iURUrRGxPUNPdy5/HRSm+Yj6okJ6UtLINN0Q9M4+h3I=
-github.com/pkg/errors v0.8.1/go.mod h1:bwawxfHBFNV+L2hUp1rHADufV3IMtnDRdf1r5NINEl0=
-github.com/satori/go.uuid v1.2.0 h1:0uYX9dsZ2yD7q2RtLRtPSdGDWzjeM3TbMJP9utgA0ww=
-github.com/satori/go.uuid v1.2.0/go.mod h1:dA0hQrYB0VpLJoorglMZABFdXlWrHn1NEOzdhQKdks0=
+github.com/JulesMike/go-sse v0.0.0-20191012191303-fe5b3fb8425e h1:sTGMiovKvV2ILiu5n2j4LHq25mMMDl1VK+J6KF57k0c=
+github.com/JulesMike/go-sse v0.0.0-20191012191303-fe5b3fb8425e/go.mod h1:VC9hwccuSHrbqfelebAjoPsPJes6dV9OXouhrCdNXNU=

@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/alexandrevicenzi/go-sse"
+	"github.com/JulesMike/go-sse"
 )
 
 // TransformFn takes a cache content and transforms it
@@ -68,6 +68,11 @@ func (r *Resource) Fetch() error {
 
 	hash := fmt.Sprintf("%x", sha1.Sum(b))
 
+	// Inform clients on this resource SSE channel
+	if r.rc.opts.EnableSSE && r.rc.sseServer != nil && r.rc.sseServer.HasChannel(r.Alias) {
+		r.rc.sseServer.SendMessage(r.Alias, sse.NewMessage(hash, string(b), "message"))
+	}
+
 	// if content is not new, we skip
 	if r.Hash == hash {
 		return nil
@@ -81,11 +86,6 @@ func (r *Resource) Fetch() error {
 	// Cache control headers
 	r.Header.Set("Etag", r.Hash)
 	r.Header.Set("Cache-Control", fmt.Sprintf("max-age=%d", r.Interval/time.Second))
-
-	// Inform clients on this resource SSE channel
-	if r.rc.opts.EnableSSE && r.rc.sseServer != nil {
-		r.rc.sseServer.SendMessage(r.Alias, sse.SimpleMessage(string(b)))
-	}
 
 	return nil
 }
@@ -124,7 +124,14 @@ func (r *Resource) StartFetcher() {
 
 	r.running = true
 	ticker := time.NewTicker(r.Interval)
-	r.Fetch()
+
+	if err := r.Fetch(); err != nil {
+		// No cache present
+		if r.rc.opts.EnableSSE && r.rc.sseServer != nil && r.rc.sseServer.HasChannel(r.Alias) {
+			r.rc.sseServer.SendMessage(r.Alias, sse.SimpleMessage(fmt.Sprintf("error: %v", err)))
+		}
+	}
+
 	go func() {
 		for {
 			select {
@@ -180,7 +187,7 @@ func NewResourceCacher(opts *Options) *ResourceCacher {
 	}
 
 	if rc.opts.Logger == nil {
-		rc.opts.Logger = log.New(os.Stdout, "cacher: ", log.Ldate|log.Ltime|log.Lshortfile)
+		rc.opts.Logger = log.New(os.Stdout, "cacher: ", log.Ldate|log.Ltime)
 	}
 
 	if rc.opts.EnableSSE {
@@ -191,6 +198,10 @@ func NewResourceCacher(opts *Options) *ResourceCacher {
 
 		rc.sseServer = sse.NewServer(&sse.Options{
 			RetryInterval: rc.opts.SSERetryInterval,
+			Headers: map[string]string{
+				"Access-Control-Allow-Methods": "GET, OPTIONS",
+				"Access-Control-Allow-Headers": "Keep-Alive,X-Requested-With,Cache-Control,Content-Type,Last-Event-ID",
+			},
 			ChannelNameFunc: func(r *http.Request) string {
 				// Use alias query in url as channel name
 				alias, err := getAliasFromRequest(r)
@@ -227,6 +238,8 @@ func (c *ResourceCacher) AddResource(res *Resource) (*Resource, error) {
 
 	res.rc = c
 
+	c.sseServer.AddChannel(res.Alias)
+
 	res.StartFetcher()
 
 	c.resources[res.Alias] = res
@@ -255,7 +268,7 @@ func (c *ResourceCacher) Stop() {
 // SSEHTTPHandler returns the sse http handler
 func (c *ResourceCacher) SSEHTTPHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !c.opts.EnableSSE {
+		if !c.opts.EnableSSE || c.sseServer == nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			w.Write([]byte("SSE support not enabled"))
 			return
@@ -283,8 +296,6 @@ func (c *ResourceCacher) SSEHTTPHandler() http.Handler {
 		}
 
 		writeCommonHeaders(w, r)
-
-		resource.WriteHeaders(w)
 
 		c.sseServer.ServeHTTP(w, r)
 	})
