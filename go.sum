@@ -1,2 +1,4 @@
 github.com/JulesMike/go-sse v0.0.0-20191012191303-fe5b3fb8425e h1:sTGMiovKvV2ILiu5n2j4LHq25mMMDl1VK+J6KF57k0c=
 github.com/JulesMike/go-sse v0.0.0-20191012191303-fe5b3fb8425e/go.mod h1:VC9hwccuSHrbqfelebAjoPsPJes6dV9OXouhrCdNXNU=
+github.com/JulesMike/go-sse v0.0.0-20191012204705-0ebd9f4820bb h1:q2ivR77cDB6HyYp8cGMGK8t5b4rTKlmXqo/gAyj1H3s=
+github.com/JulesMike/go-sse v0.0.0-20191012204705-0ebd9f4820bb/go.mod h1:rbz7CSoDt2IQheXoR59UpF8aJwyrD3nfUVCoKC3LAkw=
