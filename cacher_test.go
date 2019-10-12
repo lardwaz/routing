@@ -31,12 +31,9 @@ func TestServeHTTP(t *testing.T) {
 	defer srv.Close()
 
 	type test struct {
-		alias          string
-		method         string
-		interval       time.Duration
-		origin         string
-		allowedOrigins []string
-		transformFn    routing.TransformFn
+		res    *routing.Resource
+		opts   *routing.Options
+		origin string
 	}
 
 	type result struct {
@@ -55,9 +52,11 @@ func TestServeHTTP(t *testing.T) {
 		{
 			name: "normal get",
 			test: test{
-				alias:    "normalget",
-				method:   http.MethodGet,
-				interval: time.Second,
+				res: &routing.Resource{
+					Alias:    "normalget",
+					Method:   http.MethodGet,
+					Interval: time.Second,
+				},
 			},
 			result: result{
 				content: []byte(`{"status": "ok"}`),
@@ -75,11 +74,13 @@ func TestServeHTTP(t *testing.T) {
 		{
 			name: "good origin",
 			test: test{
-				alias:          "goodorigin",
-				method:         http.MethodGet,
-				interval:       time.Second,
-				origin:         "http://good.origin",
-				allowedOrigins: []string{"http://good.origin"},
+				res: &routing.Resource{
+					Alias:          "goodorigin",
+					Method:         http.MethodGet,
+					Interval:       time.Second,
+					AllowedOrigins: []string{"http://good.origin"},
+				},
+				origin: "http://good.origin",
 			},
 			result: result{
 				content: []byte(`{"status": "ok"}`),
@@ -98,26 +99,28 @@ func TestServeHTTP(t *testing.T) {
 		{
 			name: "simple transform fn",
 			test: test{
-				alias:    "simpletransformfn",
-				method:   http.MethodGet,
-				interval: time.Second,
-				transformFn: func(in []byte) []byte {
-					type result struct {
-						Status string `json:"status"`
-					}
-					var res result
-					if err := json.Unmarshal(in, &res); err != nil {
-						return nil
-					}
+				res: &routing.Resource{
+					Alias:    "simpletransformfn",
+					Method:   http.MethodGet,
+					Interval: time.Second,
+					TransformFn: func(in []byte) []byte {
+						type result struct {
+							Status string `json:"status"`
+						}
+						var res result
+						if err := json.Unmarshal(in, &res); err != nil {
+							return nil
+						}
 
-					res.Status = "transformed"
+						res.Status = "transformed"
 
-					newRes, err := json.Marshal(res)
-					if err != nil {
-						return nil
-					}
+						newRes, err := json.Marshal(res)
+						if err != nil {
+							return nil
+						}
 
-					return newRes
+						return newRes
+					},
 				},
 			},
 			result: result{
@@ -142,12 +145,13 @@ func TestServeHTTP(t *testing.T) {
 			ts := tt.test
 			rs := tt.result
 
-			c := routing.NewResourceCacher()
-			c.AddResource(ts.alias, ts.method, srv.URL+"/get", ts.interval, ts.transformFn, ts.allowedOrigins...)
+			c := routing.NewResourceCacher(ts.opts)
+			ts.res.URL = srv.URL + "/get"
+			c.AddResource(ts.res)
 			s := httptest.NewServer(c)
 			defer s.Close()
 
-			req := httptest.NewRequest(ts.method, s.URL+"/?alias="+ts.alias, nil)
+			req := httptest.NewRequest(ts.res.Method, s.URL+"/?alias="+ts.res.Alias, nil)
 			req.Header.Set("Origin", ts.origin)
 			w := httptest.NewRecorder()
 			c.ServeHTTP(w, req)
