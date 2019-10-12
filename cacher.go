@@ -282,14 +282,9 @@ func (c *ResourceCacher) SSEHTTPHandler() http.Handler {
 			return
 		}
 
-		resource.WriteHeaders(w)
+		writeCommonHeaders(w, r)
 
-		w.Header().Add("Vary", "Origin")
-		w.Header().Add("Vary", "Access-Control-Request-Method")
-		w.Header().Add("Vary", "Access-Control-Request-Headers")
-		if origin != "" {
-			w.Header().Set("Access-Control-Allow-Origin", origin)
-		}
+		resource.WriteHeaders(w)
 
 		c.sseServer.ServeHTTP(w, r)
 	})
@@ -325,16 +320,21 @@ func (c *ResourceCacher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	writeCommonHeaders(w, r)
+
 	resource.WriteHeaders(w)
 
+	w.WriteHeader(resource.StatusCode)
+	w.Write(resource.Content)
+}
+
+func writeCommonHeaders(w http.ResponseWriter, r *http.Request) {
 	w.Header().Add("Vary", "Origin")
 	w.Header().Add("Vary", "Access-Control-Request-Method")
 	w.Header().Add("Vary", "Access-Control-Request-Headers")
-	if origin != "" {
+	if origin := r.Header.Get("Origin"); origin != "" {
 		w.Header().Set("Access-Control-Allow-Origin", origin)
 	}
-	w.WriteHeader(resource.StatusCode)
-	w.Write(resource.Content)
 }
 
 func getAliasFromRequest(r *http.Request) (string, error) {
