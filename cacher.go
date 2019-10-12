@@ -68,16 +68,6 @@ func (r *Resource) Fetch() error {
 
 	hash := fmt.Sprintf("%x", sha1.Sum(b))
 
-	// Inform clients on this resource SSE channel
-	if r.rc.opts.EnableSSE && r.rc.sseServer != nil && r.rc.sseServer.HasChannel(r.Alias) {
-		r.rc.sseServer.SendMessage(r.Alias, sse.NewMessage(hash, string(b), "message"))
-	}
-
-	// if content is not new, we skip
-	if r.Hash == hash {
-		return nil
-	}
-
 	r.Hash = hash
 	r.Content = b
 	r.StatusCode = resp.StatusCode
@@ -86,6 +76,9 @@ func (r *Resource) Fetch() error {
 	// Cache control headers
 	r.Header.Set("Etag", r.Hash)
 	r.Header.Set("Cache-Control", fmt.Sprintf("max-age=%d", r.Interval/time.Second))
+
+	// Inform clients on this resource SSE channel
+	r.SendAsMessage()
 
 	return nil
 }
@@ -126,10 +119,7 @@ func (r *Resource) StartFetcher() {
 	ticker := time.NewTicker(r.Interval)
 
 	if err := r.Fetch(); err != nil {
-		// No cache present
-		if r.rc.opts.EnableSSE && r.rc.sseServer != nil && r.rc.sseServer.HasChannel(r.Alias) {
-			r.rc.sseServer.SendMessage(r.Alias, sse.SimpleMessage(fmt.Sprintf("error: %v", err)))
-		}
+		r.SendAsMessage()
 	}
 
 	go func() {
@@ -148,6 +138,18 @@ func (r *Resource) StartFetcher() {
 // StopFetcher stops the automatic fetcher
 func (r *Resource) StopFetcher() {
 	r.stopFetcher <- struct{}{}
+}
+
+// SendAsMessage sends the resource as message through sse server
+func (r *Resource) SendAsMessage() {
+	message := string(r.Content)
+	if message == "" {
+		message = "invalid resource content"
+	}
+
+	if r.rc.opts.EnableSSE && r.rc.sseServer != nil && r.rc.sseServer.HasChannel(r.Alias) {
+		r.rc.sseServer.SendMessage(r.Alias, sse.NewMessage(r.Hash, message, "message"))
+	}
 }
 
 // WriteHeaders write the header to a response writer
