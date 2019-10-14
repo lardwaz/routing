@@ -77,10 +77,20 @@ func NewSSEResourceCacher(opts *SSEOptions) *SSEResourceCacher {
 		c.server.CloseChannel(res.Alias)
 	}
 
-	c.OnStopped = func() {
-		if c.server != nil {
-			c.server.Shutdown()
+	c.OnStarted = func() {
+		if c.server == nil {
+			return
 		}
+
+		c.server.Restart()
+	}
+
+	c.OnStopped = func() {
+		if c.server == nil {
+			return
+		}
+
+		c.server.Shutdown()
 	}
 
 	return c

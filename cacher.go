@@ -163,6 +163,7 @@ type ResourceCacher struct {
 	OnResourceAdded   ResourceEvent
 	OnResourceUpdated ResourceEvent
 	OnResourceRemoved ResourceEvent
+	OnStarted         func()
 	OnStopped         func()
 
 	resources Resources
@@ -249,6 +250,10 @@ func (c *ResourceCacher) RemoveResource(alias string) (*Resource, error) {
 func (c *ResourceCacher) Start() {
 	for _, resource := range c.resources {
 		resource.StartFetcher()
+	}
+
+	if c.OnStarted != nil {
+		c.OnStarted()
 	}
 }
 
