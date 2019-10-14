@@ -240,7 +240,9 @@ func (c *ResourceCacher) AddResource(res *Resource) (*Resource, error) {
 
 	res.rc = c
 
-	c.sseServer.AddChannel(res.Alias)
+	if c.opts.EnableSSE && c.sseServer != nil {
+		c.sseServer.AddChannel(res.Alias)
+	}
 
 	res.StartFetcher()
 
@@ -256,7 +258,9 @@ func (c *ResourceCacher) RemoveResource(alias string) (*Resource, error) {
 		return nil, errors.New("no resource found")
 	}
 
-	c.sseServer.CloseChannel(alias)
+	if c.opts.EnableSSE && c.sseServer != nil {
+		c.sseServer.CloseChannel(alias)
+	}
 
 	delete(c.resources, alias)
 
