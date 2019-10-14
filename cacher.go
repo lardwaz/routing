@@ -240,6 +240,11 @@ func (c *ResourceCacher) AddResource(res *Resource) (*Resource, error) {
 		return nil, errors.New("invalid interval")
 	}
 
+	_, ok := c.resources[res.Alias]
+	if ok {
+		return nil, errors.New("resource already exist")
+	}
+
 	res.rc = c
 
 	if c.opts.EnableSSE && c.sseServer != nil {
