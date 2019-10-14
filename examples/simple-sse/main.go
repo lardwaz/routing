@@ -9,10 +9,6 @@ import (
 )
 
 func main() {
-	opts := &routing.Options{
-		EnableSSE: true,
-	}
-
 	res := &routing.Resource{
 		Alias:    "dummycacher",
 		Method:   http.MethodGet,
@@ -20,12 +16,12 @@ func main() {
 		URL:      "http://worldclockapi.com/api/json/est/now",
 	}
 
-	rc := routing.NewResourceCacher(opts)
+	rc := routing.NewSSEResourceCacher(nil)
 
-	go rc.AddResource(res)
+	go rc.AddResource(res, nil)
 
 	http.Handle("/", http.FileServer(http.Dir("./static")))
-	http.Handle("/resources/sse/", rc.SSEHTTPHandler())
+	http.Handle("/resources/sse/", rc)
 
 	log.Println("listening on http://localhost:3000")
 

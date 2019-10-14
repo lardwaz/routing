@@ -31,9 +31,10 @@ func TestServeHTTP(t *testing.T) {
 	defer srv.Close()
 
 	type test struct {
-		res    *routing.Resource
-		opts   *routing.Options
-		origin string
+		res      *routing.Resource
+		onUpdate routing.ResourceEvent
+		opts     *routing.Options
+		origin   string
 	}
 
 	type result struct {
@@ -103,24 +104,27 @@ func TestServeHTTP(t *testing.T) {
 					Alias:    "simpletransformfn",
 					Method:   http.MethodGet,
 					Interval: time.Second,
-					TransformFn: func(in []byte) []byte {
-						type result struct {
-							Status string `json:"status"`
-						}
-						var res result
-						if err := json.Unmarshal(in, &res); err != nil {
-							return nil
-						}
+				},
+				onUpdate: func(r *routing.Resource) {
+					type result struct {
+						Status string `json:"status"`
+					}
+					var res result
+					if err := json.Unmarshal(r.Content, &res); err != nil {
+						return
+					}
 
-						res.Status = "transformed"
+					res.Status = "transformed"
 
-						newRes, err := json.Marshal(res)
-						if err != nil {
-							return nil
-						}
+					newRes, err := json.Marshal(res)
+					if err != nil {
+						return
+					}
 
-						return newRes
-					},
+					r.Content = newRes
+					r.Hash = fmt.Sprintf("%x", sha1.Sum(r.Content))
+					r.Header.Set("Content-Length", fmt.Sprintf("%d", len(r.Content)))
+					r.Header.Set("Etag", r.Hash)
 				},
 			},
 			result: result{
@@ -147,7 +151,7 @@ func TestServeHTTP(t *testing.T) {
 
 			c := routing.NewResourceCacher(ts.opts)
 			ts.res.URL = srv.URL + "/get"
-			c.AddResource(ts.res)
+			c.AddResource(ts.res, ts.onUpdate)
 			s := httptest.NewServer(c)
 			defer s.Close()
 

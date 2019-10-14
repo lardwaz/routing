@@ -10,12 +10,13 @@ import (
 	"os"
 	"sync"
 	"time"
-
-	"github.com/JulesMike/go-sse"
 )
 
-// TransformFn takes a cache content and transforms it
-type TransformFn func(in []byte) (out []byte)
+// ResourceEvent represents a callback fn
+type ResourceEvent func(res *Resource)
+
+// Resources is map of resources
+type Resources map[string]*Resource
 
 // Resource represents a single resource to cache
 type Resource struct {
@@ -28,12 +29,11 @@ type Resource struct {
 	StatusCode     int
 	Hash           string
 	AllowedOrigins []string
-	TransformFn    TransformFn
 
-	running     bool
-	stopFetcher chan (struct{})
-	rc          *ResourceCacher
-	mu          sync.Mutex
+	onUpdateEvents []ResourceEvent
+	running        bool
+	stopFetcher    chan (struct{})
+	mu             sync.Mutex
 }
 
 // Fetch makes the request to obtain the resource and caches the result
@@ -61,14 +61,7 @@ func (r *Resource) Fetch() error {
 		return err
 	}
 
-	if r.TransformFn != nil {
-		b = r.TransformFn(b)
-		resp.Header.Set("Content-Length", fmt.Sprintf("%d", len(b)))
-	}
-
-	hash := fmt.Sprintf("%x", sha1.Sum(b))
-
-	r.Hash = hash
+	r.Hash = fmt.Sprintf("%x", sha1.Sum(b))
 	r.Content = b
 	r.StatusCode = resp.StatusCode
 	r.Header = resp.Header.Clone()
@@ -77,8 +70,8 @@ func (r *Resource) Fetch() error {
 	r.Header.Set("Etag", r.Hash)
 	r.Header.Set("Cache-Control", fmt.Sprintf("max-age=%d", r.Interval/time.Second))
 
-	// Inform clients on this resource SSE channel
-	r.SendAsMessage()
+	// Executing onUpdateEvents
+	r.executeUpdateEvents()
 
 	return nil
 }
@@ -108,6 +101,15 @@ func (r *Resource) isOriginCheckEnabled() bool {
 	return r.AllowedOrigins != nil && len(r.AllowedOrigins) != 0
 }
 
+func (r *Resource) executeUpdateEvents() {
+	for _, e := range r.onUpdateEvents {
+		if e == nil {
+			continue
+		}
+		e(r)
+	}
+}
+
 // StartFetcher starts the automatic fetcher
 func (r *Resource) StartFetcher() {
 	if r.running {
@@ -119,7 +121,8 @@ func (r *Resource) StartFetcher() {
 	ticker := time.NewTicker(r.Interval)
 
 	if err := r.Fetch(); err != nil {
-		r.SendAsMessage()
+		// First time fetch we still execute the onUpdateEvents
+		r.executeUpdateEvents()
 	}
 
 	go func() {
@@ -140,18 +143,6 @@ func (r *Resource) StopFetcher() {
 	r.stopFetcher <- struct{}{}
 }
 
-// SendAsMessage sends the resource as message through sse server
-func (r *Resource) SendAsMessage() {
-	message := string(r.Content)
-	if message == "" {
-		message = "invalid resource content"
-	}
-
-	if r.rc.opts.EnableSSE && r.rc.sseServer != nil && r.rc.sseServer.HasChannel(r.Alias) {
-		r.rc.sseServer.SendMessage(r.Alias, sse.NewMessage(r.Hash, message, "message"))
-	}
-}
-
 // WriteHeaders write the header to a response writer
 func (r *Resource) WriteHeaders(w http.ResponseWriter) {
 	for k, v := range r.Header {
@@ -163,26 +154,27 @@ func (r *Resource) WriteHeaders(w http.ResponseWriter) {
 
 // Options represents a set of resource cacher options
 type Options struct {
-	EnableSSE bool
-	// RetryInterval change EventSource default retry interval (milliseconds)
-	SSERetryInterval int
 	// Defines a custom logger
 	Logger *log.Logger
 }
 
 // ResourceCacher creates a reverse proxy that caches the results
 type ResourceCacher struct {
-	resources map[string]*Resource
-	sseServer *sse.Server
-	opts      *Options
+	OnResourceAdded   ResourceEvent
+	OnResourceUpdated ResourceEvent
+	OnResourceRemoved ResourceEvent
+	OnStopped         func()
 
-	mu sync.Mutex
+	resources Resources
+	mu        sync.Mutex
+
+	opts *Options
 }
 
 // NewResourceCacher creates a new resource cacher
 func NewResourceCacher(opts *Options) *ResourceCacher {
 	rc := &ResourceCacher{
-		resources: make(map[string]*Resource),
+		resources: make(Resources),
 		opts:      opts,
 	}
 
@@ -194,38 +186,18 @@ func NewResourceCacher(opts *Options) *ResourceCacher {
 		rc.opts.Logger = log.New(os.Stdout, "cacher: ", log.Ldate|log.Ltime)
 	}
 
-	if rc.opts.EnableSSE {
-		// Increase default retry interval to 5s
-		if rc.opts.SSERetryInterval == 0 {
-			rc.opts.SSERetryInterval = 5 * 1000
-		}
-
-		rc.sseServer = sse.NewServer(&sse.Options{
-			RetryInterval: rc.opts.SSERetryInterval,
-			Headers: map[string]string{
-				"Access-Control-Allow-Methods": "GET, OPTIONS",
-				"Access-Control-Allow-Headers": "Keep-Alive,X-Requested-With,Cache-Control,Content-Type,Last-Event-ID",
-			},
-			ChannelNameFunc: func(r *http.Request) string {
-				// Use alias query in url as channel name
-				alias, err := getAliasFromRequest(r)
-				if err != nil {
-					return r.URL.Path
-				}
-
-				return alias
-			},
-			Logger: rc.opts.Logger,
-		})
-	}
-
 	return rc
 }
 
 // AddResource adds a new resource to the resource cacher
-func (c *ResourceCacher) AddResource(res *Resource) (*Resource, error) {
+func (c *ResourceCacher) AddResource(res *Resource, onUpdate ResourceEvent) (*Resource, error) {
 	if res.Alias == "" {
 		return nil, errors.New("missing alias")
+	}
+
+	_, ok := c.resources[res.Alias]
+	if ok {
+		return nil, errors.New("resource already exist")
 	}
 
 	if res.Method == "" {
@@ -240,15 +212,10 @@ func (c *ResourceCacher) AddResource(res *Resource) (*Resource, error) {
 		return nil, errors.New("invalid interval")
 	}
 
-	_, ok := c.resources[res.Alias]
-	if ok {
-		return nil, errors.New("resource already exist")
-	}
+	res.onUpdateEvents = append(res.onUpdateEvents, c.OnResourceUpdated, onUpdate)
 
-	res.rc = c
-
-	if c.opts.EnableSSE && c.sseServer != nil {
-		c.sseServer.AddChannel(res.Alias)
+	if c.OnResourceAdded != nil {
+		c.OnResourceAdded(res)
 	}
 
 	res.StartFetcher()
@@ -267,8 +234,8 @@ func (c *ResourceCacher) RemoveResource(alias string) (*Resource, error) {
 		return nil, errors.New("no resource found")
 	}
 
-	if c.opts.EnableSSE && c.sseServer != nil {
-		c.sseServer.CloseChannel(alias)
+	if c.OnResourceRemoved != nil {
+		c.OnResourceRemoved(res)
 	}
 
 	c.mu.Lock()
@@ -291,45 +258,9 @@ func (c *ResourceCacher) Stop() {
 		resource.StopFetcher()
 	}
 
-	if c.sseServer != nil {
-		c.sseServer.Shutdown()
+	if c.OnStopped != nil {
+		c.OnStopped()
 	}
-}
-
-// SSEHTTPHandler returns the sse http handler
-func (c *ResourceCacher) SSEHTTPHandler() http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !c.opts.EnableSSE || c.sseServer == nil {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			w.Write([]byte("SSE support not enabled"))
-			return
-		}
-
-		alias, err := getAliasFromRequest(r)
-		if err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			w.Write([]byte(fmt.Sprintf("%v", err)))
-			return
-		}
-
-		resource, ok := c.resources[alias]
-		if !ok {
-			w.WriteHeader(http.StatusBadRequest)
-			w.Write([]byte("Invalid alias"))
-			return
-		}
-
-		origin := r.Header.Get("Origin")
-		if !resource.IsOriginAllowed(origin) {
-			w.WriteHeader(http.StatusUnauthorized)
-			w.Write([]byte("Invalid Origin"))
-			return
-		}
-
-		writeCommonHeaders(w, r)
-
-		c.sseServer.ServeHTTP(w, r)
-	})
 }
 
 // ServeHTTP to implement net/http.Handler for ResourceCacher
