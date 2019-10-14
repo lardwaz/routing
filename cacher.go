@@ -175,6 +175,8 @@ type ResourceCacher struct {
 	resources map[string]*Resource
 	sseServer *sse.Server
 	opts      *Options
+
+	mu sync.Mutex
 }
 
 // NewResourceCacher creates a new resource cacher
@@ -246,7 +248,9 @@ func (c *ResourceCacher) AddResource(res *Resource) (*Resource, error) {
 
 	res.StartFetcher()
 
+	c.mu.Lock()
 	c.resources[res.Alias] = res
+	c.mu.Unlock()
 
 	return res, nil
 }
@@ -262,7 +266,9 @@ func (c *ResourceCacher) RemoveResource(alias string) (*Resource, error) {
 		c.sseServer.CloseChannel(alias)
 	}
 
+	c.mu.Lock()
 	delete(c.resources, alias)
+	c.mu.Unlock()
 
 	return res, nil
 }
