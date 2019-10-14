@@ -213,7 +213,7 @@ func (c *ResourceCacher) AddResource(res *Resource, onUpdate ResourceEvent) (*Re
 		return nil, errors.New("invalid interval")
 	}
 
-	res.onUpdateEvents = append(res.onUpdateEvents, c.OnResourceUpdated, onUpdate)
+	res.onUpdateEvents = append(res.onUpdateEvents, onUpdate, c.OnResourceUpdated)
 
 	if c.OnResourceAdded != nil {
 		c.OnResourceAdded(res)
