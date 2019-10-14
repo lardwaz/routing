@@ -1,7 +1,8 @@
-package routing
+package routing_test
 
 import (
 	"crypto/sha1"
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -9,6 +10,8 @@ import (
 	"reflect"
 	"testing"
 	"time"
+
+	"go.lsl.digital/lardwaz/routing"
 )
 
 func TestServeHTTP(t *testing.T) {
@@ -28,11 +31,10 @@ func TestServeHTTP(t *testing.T) {
 	defer srv.Close()
 
 	type test struct {
-		alias          string
-		method         string
-		interval       time.Duration
-		origin         string
-		allowedOrigins []string
+		res      *routing.Resource
+		onUpdate routing.ResourceEvent
+		opts     *routing.Options
+		origin   string
 	}
 
 	type result struct {
@@ -51,9 +53,11 @@ func TestServeHTTP(t *testing.T) {
 		{
 			name: "normal get",
 			test: test{
-				alias:    "normalget",
-				method:   http.MethodGet,
-				interval: time.Second,
+				res: &routing.Resource{
+					Alias:    "normalget",
+					Method:   http.MethodGet,
+					Interval: time.Second,
+				},
 			},
 			result: result{
 				content: []byte(`{"status": "ok"}`),
@@ -71,11 +75,13 @@ func TestServeHTTP(t *testing.T) {
 		{
 			name: "good origin",
 			test: test{
-				alias:          "goodorigin",
-				method:         http.MethodGet,
-				interval:       time.Second,
-				origin:         "http://good.origin",
-				allowedOrigins: []string{"http://good.origin"},
+				res: &routing.Resource{
+					Alias:          "goodorigin",
+					Method:         http.MethodGet,
+					Interval:       time.Second,
+					AllowedOrigins: []string{"http://good.origin"},
+				},
+				origin: "http://good.origin",
 			},
 			result: result{
 				content: []byte(`{"status": "ok"}`),
@@ -91,6 +97,49 @@ func TestServeHTTP(t *testing.T) {
 				statusCode: http.StatusOK,
 			},
 		},
+		{
+			name: "simple transform fn",
+			test: test{
+				res: &routing.Resource{
+					Alias:    "simpletransformfn",
+					Method:   http.MethodGet,
+					Interval: time.Second,
+				},
+				onUpdate: func(r *routing.Resource) {
+					type result struct {
+						Status string `json:"status"`
+					}
+					var res result
+					if err := json.Unmarshal(r.Content, &res); err != nil {
+						return
+					}
+
+					res.Status = "transformed"
+
+					newRes, err := json.Marshal(res)
+					if err != nil {
+						return
+					}
+
+					r.Content = newRes
+					r.Hash = fmt.Sprintf("%x", sha1.Sum(r.Content))
+					r.Header.Set("Content-Length", fmt.Sprintf("%d", len(r.Content)))
+					r.Header.Set("Etag", r.Hash)
+				},
+			},
+			result: result{
+				content: []byte(`{"status":"transformed"}`),
+				header: http.Header{
+					"Content-Length": []string{"24"},
+					"Content-Type":   []string{"application/json"},
+					"Date":           []string{when},
+					"Etag":           []string{fmt.Sprintf("%x", sha1.Sum([]byte(`{"status":"transformed"}`)))},
+					"Cache-Control":  []string{fmt.Sprintf("max-age=%d", time.Second/time.Second)},
+					"Vary":           commonVaryHeaders,
+				},
+				statusCode: http.StatusOK,
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -100,12 +149,13 @@ func TestServeHTTP(t *testing.T) {
 			ts := tt.test
 			rs := tt.result
 
-			c := NewResourceCacher()
-			c.AddCacheItem(ts.alias, ts.method, srv.URL+"/get", ts.interval, ts.allowedOrigins...)
+			c := routing.NewResourceCacher(ts.opts)
+			ts.res.URL = srv.URL + "/get"
+			c.AddResource(ts.res, ts.onUpdate)
 			s := httptest.NewServer(c)
 			defer s.Close()
 
-			req := httptest.NewRequest(ts.method, s.URL+"/?alias="+ts.alias, nil)
+			req := httptest.NewRequest(ts.res.Method, s.URL+"/?alias="+ts.res.Alias, nil)
 			req.Header.Set("Origin", ts.origin)
 			w := httptest.NewRecorder()
 			c.ServeHTTP(w, req)
