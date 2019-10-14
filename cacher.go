@@ -2,41 +2,50 @@ package routing
 
 import (
 	"crypto/sha1"
+	"errors"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 )
 
-// CacheItem represents a single resource to cache
-type CacheItem struct {
+// ResourceEvent represents a callback fn
+type ResourceEvent func(res *Resource)
+
+// Resources is map of resources
+type Resources map[string]*Resource
+
+// Resource represents a single resource to cache
+type Resource struct {
 	Alias          string
 	Method         string
 	URL            string
 	Interval       time.Duration
 	Content        []byte
-	ContentLength  int64
 	Header         http.Header
 	StatusCode     int
 	Hash           string
 	AllowedOrigins []string
 
-	running bool
-	stop    chan struct{}
-	lock    sync.Mutex
+	onUpdateEvents []ResourceEvent
+	running        bool
+	stopFetcher    chan (struct{})
+	mu             sync.Mutex
 }
 
 // Fetch makes the request to obtain the resource and caches the result
-func (c *CacheItem) Fetch() error {
-	c.lock.Lock()
-	defer c.lock.Unlock()
+func (r *Resource) Fetch() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
 	cli := &http.Client{
 		Timeout: time.Second * 10,
 	}
 
-	req, err := http.NewRequest(c.Method, c.URL, nil)
+	req, err := http.NewRequest(r.Method, r.URL, nil)
 	if err != nil {
 		return err
 	}
@@ -52,22 +61,24 @@ func (c *CacheItem) Fetch() error {
 		return err
 	}
 
-	c.Content = b
-	c.ContentLength = resp.ContentLength
-	c.StatusCode = resp.StatusCode
-	c.Hash = fmt.Sprintf("%x", sha1.Sum(b))
-	c.Header = resp.Header.Clone()
+	r.Hash = fmt.Sprintf("%x", sha1.Sum(b))
+	r.Content = b
+	r.StatusCode = resp.StatusCode
+	r.Header = resp.Header.Clone()
 
-	// Caching stuffs
-	c.Header.Set("Etag", c.Hash)
-	c.Header.Set("Cache-Control", fmt.Sprintf("max-age=%d", c.Interval/time.Second))
+	// Cache control headers
+	r.Header.Set("Etag", r.Hash)
+	r.Header.Set("Cache-Control", fmt.Sprintf("max-age=%d", r.Interval/time.Second))
+
+	// Executing onUpdateEvents
+	r.executeUpdateEvents()
 
 	return nil
 }
 
 // IsOriginAllowed checks if origin is valid
-func (c *CacheItem) IsOriginAllowed(origin string) bool {
-	if !c.isOriginCheckEnabled() {
+func (r *Resource) IsOriginAllowed(origin string) bool {
+	if !r.isOriginCheckEnabled() {
 		return true
 	}
 
@@ -76,7 +87,7 @@ func (c *CacheItem) IsOriginAllowed(origin string) bool {
 		return false
 	}
 
-	for _, o := range c.AllowedOrigins {
+	for _, o := range r.AllowedOrigins {
 		if o == origin {
 			return true
 		}
@@ -85,28 +96,42 @@ func (c *CacheItem) IsOriginAllowed(origin string) bool {
 	return false
 }
 
-func (c *CacheItem) isOriginCheckEnabled() bool {
+func (r *Resource) isOriginCheckEnabled() bool {
 	// Check if origin check enabled
-	return c.AllowedOrigins != nil && len(c.AllowedOrigins) != 0
+	return r.AllowedOrigins != nil && len(r.AllowedOrigins) != 0
+}
+
+func (r *Resource) executeUpdateEvents() {
+	for _, e := range r.onUpdateEvents {
+		if e == nil {
+			continue
+		}
+		e(r)
+	}
 }
 
 // StartFetcher starts the automatic fetcher
-func (c *CacheItem) StartFetcher() {
-	if c.running {
+func (r *Resource) StartFetcher() {
+	if r.running {
 		// Already running
 		return
 	}
 
-	c.running = true
-	ticker := time.NewTicker(c.Interval)
-	c.Fetch()
+	r.running = true
+	ticker := time.NewTicker(r.Interval)
+
+	if err := r.Fetch(); err != nil {
+		// First time fetch we still execute the onUpdateEvents
+		r.executeUpdateEvents()
+	}
+
 	go func() {
 		for {
 			select {
 			case <-ticker.C:
-				c.Fetch()
-			case <-c.stop:
-				c.running = false
+				r.Fetch()
+			case <-r.stopFetcher:
+				r.running = false
 				return
 			}
 		}
@@ -114,67 +139,145 @@ func (c *CacheItem) StartFetcher() {
 }
 
 // StopFetcher stops the automatic fetcher
-func (c *CacheItem) StopFetcher() {
-	c.stop <- struct{}{}
+func (r *Resource) StopFetcher() {
+	r.stopFetcher <- struct{}{}
+}
+
+// WriteHeaders write the header to a response writer
+func (r *Resource) WriteHeaders(w http.ResponseWriter) {
+	for k, v := range r.Header {
+		for _, v2 := range v {
+			w.Header().Set(k, v2)
+		}
+	}
+}
+
+// Options represents a set of resource cacher options
+type Options struct {
+	// Defines a custom logger
+	Logger *log.Logger
 }
 
 // ResourceCacher creates a reverse proxy that caches the results
 type ResourceCacher struct {
-	caches map[string]*CacheItem
+	OnResourceAdded   ResourceEvent
+	OnResourceUpdated ResourceEvent
+	OnResourceRemoved ResourceEvent
+	OnStarted         func()
+	OnStopped         func()
+
+	resources Resources
+	mu        sync.Mutex
+
+	opts *Options
 }
 
 // NewResourceCacher creates a new resource cacher
-func NewResourceCacher() *ResourceCacher {
-	return &ResourceCacher{
-		caches: make(map[string]*CacheItem),
+func NewResourceCacher(opts *Options) *ResourceCacher {
+	rc := &ResourceCacher{
+		resources: make(Resources),
+		opts:      opts,
 	}
+
+	if rc.opts == nil {
+		rc.opts = &Options{}
+	}
+
+	if rc.opts.Logger == nil {
+		rc.opts.Logger = log.New(os.Stdout, "cacher: ", log.Ldate|log.Ltime)
+	}
+
+	return rc
 }
 
-// AddCacheItem adds a new cache item to the resource cacher
-func (c *ResourceCacher) AddCacheItem(alias, method, url string, interval time.Duration, allowedOrigins ...string) *CacheItem {
-	cache := &CacheItem{
-		Alias:          alias,
-		Method:         method,
-		URL:            url,
-		Interval:       interval,
-		AllowedOrigins: allowedOrigins,
+// AddResource adds a new resource to the resource cacher
+func (c *ResourceCacher) AddResource(res *Resource, onUpdate ResourceEvent) (*Resource, error) {
+	if res.Alias == "" {
+		return nil, errors.New("missing alias")
 	}
 
-	cache.StartFetcher()
+	_, ok := c.resources[res.Alias]
+	if ok {
+		return nil, errors.New("resource already exist")
+	}
 
-	c.caches[alias] = cache
+	if res.Method == "" {
+		return nil, errors.New("missing method")
+	}
 
-	return cache
+	if res.URL == "" {
+		return nil, errors.New("missing url")
+	}
+
+	if res.Interval == 0 {
+		return nil, errors.New("invalid interval")
+	}
+
+	res.onUpdateEvents = append(res.onUpdateEvents, onUpdate, c.OnResourceUpdated)
+
+	if c.OnResourceAdded != nil {
+		c.OnResourceAdded(res)
+	}
+
+	res.StartFetcher()
+
+	c.mu.Lock()
+	c.resources[res.Alias] = res
+	c.mu.Unlock()
+
+	return res, nil
+}
+
+// RemoveResource removes an existing resource from the resource cacher
+func (c *ResourceCacher) RemoveResource(alias string) (*Resource, error) {
+	res, ok := c.resources[alias]
+	if !ok {
+		return nil, errors.New("no resource found")
+	}
+
+	if c.OnResourceRemoved != nil {
+		c.OnResourceRemoved(res)
+	}
+
+	c.mu.Lock()
+	delete(c.resources, alias)
+	c.mu.Unlock()
+
+	return res, nil
 }
 
 // Start autofetching/caching
 func (c *ResourceCacher) Start() {
-	for _, cacheItem := range c.caches {
-		cacheItem.StartFetcher()
+	for _, resource := range c.resources {
+		resource.StartFetcher()
+	}
+
+	if c.OnStarted != nil {
+		c.OnStarted()
 	}
 }
 
 // Stop autofetching/caching
 func (c *ResourceCacher) Stop() {
-	for _, cacheItem := range c.caches {
-		cacheItem.StopFetcher()
+	for _, resource := range c.resources {
+		resource.StopFetcher()
+	}
+
+	if c.OnStopped != nil {
+		c.OnStopped()
 	}
 }
 
 // ServeHTTP to implement net/http.Handler for ResourceCacher
 func (c *ResourceCacher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	query := r.URL.Query()
-
-	// Get alias from url
-	aliases, ok := query["alias"]
-	if !ok {
+	alias, err := getAliasFromRequest(r)
+	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte("Missing alias"))
+		w.Write([]byte(fmt.Sprintf("%v", err)))
 		return
 	}
-	alias := aliases[0]
 
-	cache, ok := c.caches[alias]
+	resource, ok := c.resources[alias]
 	if !ok {
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte("Invalid alias"))
@@ -182,31 +285,43 @@ func (c *ResourceCacher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	origin := r.Header.Get("Origin")
-	if !cache.IsOriginAllowed(origin) {
+	if !resource.IsOriginAllowed(origin) {
 		w.WriteHeader(http.StatusUnauthorized)
 		w.Write([]byte("Invalid Origin"))
 		return
 	}
 
 	if match := r.Header.Get("If-None-Match"); match != "" {
-		if cache.Hash == match {
+		if resource.Hash == match {
 			w.WriteHeader(http.StatusNotModified)
 			return
 		}
 	}
 
-	for k, v := range cache.Header {
-		for _, v2 := range v {
-			w.Header().Set(k, v2)
-		}
-	}
+	writeCommonHeaders(w, r)
 
+	resource.WriteHeaders(w)
+
+	w.WriteHeader(resource.StatusCode)
+	w.Write(resource.Content)
+}
+
+func writeCommonHeaders(w http.ResponseWriter, r *http.Request) {
 	w.Header().Add("Vary", "Origin")
 	w.Header().Add("Vary", "Access-Control-Request-Method")
 	w.Header().Add("Vary", "Access-Control-Request-Headers")
-	if origin != "" {
+	if origin := r.Header.Get("Origin"); origin != "" {
 		w.Header().Set("Access-Control-Allow-Origin", origin)
 	}
-	w.WriteHeader(cache.StatusCode)
-	w.Write(cache.Content)
+}
+
+func getAliasFromRequest(r *http.Request) (string, error) {
+	query := r.URL.Query()
+
+	aliases, ok := query["alias"]
+	if !ok {
+		return "", errors.New("Missing alias")
+	}
+
+	return aliases[0], nil
 }
