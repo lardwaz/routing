@@ -5,11 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"net/http"
-	"os"
 	"sync"
 	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
 // ResourceEvent represents a callback fn
@@ -155,7 +155,7 @@ func (r *Resource) WriteHeaders(w http.ResponseWriter) {
 // Options represents a set of resource cacher options
 type Options struct {
 	// Defines a custom logger
-	Logger *log.Logger
+	Logger *logrus.Entry
 }
 
 // ResourceCacher creates a reverse proxy that caches the results
@@ -184,7 +184,9 @@ func NewResourceCacher(opts *Options) *ResourceCacher {
 	}
 
 	if rc.opts.Logger == nil {
-		rc.opts.Logger = log.New(os.Stdout, "cacher: ", log.Ldate|log.Ltime)
+		logger := logrus.New()
+		logger.SetOutput(ioutil.Discard)
+		rc.opts.Logger = logrus.NewEntry(logger)
 	}
 
 	return rc
