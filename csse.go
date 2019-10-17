@@ -2,7 +2,6 @@ package routing
 
 import (
 	"encoding/json"
-	"log"
 	"net/http"
 
 	"github.com/JulesMike/go-sse"
@@ -88,8 +87,6 @@ func (c *CSSEResourceCacher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Println("WAKANDA=============>")
-
 	for _, resource := range c.resources {
 		origin := r.Header.Get("Origin")
 		if !resource.IsOriginAllowed(origin) {
@@ -101,5 +98,12 @@ func (c *CSSEResourceCacher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	writeCommonHeaders(w, r)
 
+	go func() {
+		for _, r := range c.resources {
+			c.OnResourceUpdated(r)
+		}
+	}()
+
 	c.server.ServeHTTP(w, r)
+
 }
