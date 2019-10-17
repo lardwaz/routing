@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<meta http-equiv="X-UA-Compatible" content="ie=edge" />
+		<title>Simple SSE Resource cacher</title>
+	</head>
+	<body>
+		<ul id="message"></ul>
+
+		<script type="text/javascript">
+			let messageEl = document.getElementById("message");
+			let e1 = new EventSource("/resources/sse/");
+			e1.onmessage = function(event) {
+				messageEl.innerHTML += "<li><pre>" + event.data + "</pre></li>";
+			};
+		</script>
+	</body>
+</html>
