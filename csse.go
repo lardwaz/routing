@@ -9,6 +9,11 @@ import (
 
 const csseCommonChannel = "common"
 
+type sseMessage struct {
+	Alias   string `json:"alias"`
+	Payload string `json:"payload"`
+}
+
 // CSSEResourceCacher is an SSE variant of Resource Cacher
 type CSSEResourceCacher struct {
 	*ResourceCacher
@@ -36,6 +41,20 @@ func NewCSSEResourceCacher(opts *SSEOptions) *CSSEResourceCacher {
 			"Access-Control-Allow-Methods": "GET, OPTIONS",
 			"Access-Control-Allow-Headers": "Keep-Alive,X-Requested-With,Cache-Control,Content-Type,Last-Event-ID",
 		},
+		OnClientConnect: func(client *sse.Client) {
+			// Replay last messages
+			for _, res := range c.resources {
+				b, err := json.Marshal(sseMessage{
+					Alias:   res.Alias,
+					Payload: string(res.Content),
+				})
+				if err != nil {
+					return
+				}
+
+				client.SendMessage(sse.NewMessage(res.Alias+"-"+res.Hash, string(b), "message"))
+			}
+		},
 		ChannelNameFunc: func(r *http.Request) string {
 			return csseCommonChannel
 		},
@@ -47,12 +66,9 @@ func NewCSSEResourceCacher(opts *SSEOptions) *CSSEResourceCacher {
 			return
 		}
 
-		b, err := json.Marshal(struct {
-			Resource string `json:"resource"`
-			Payload  string `json:"payload"`
-		}{
-			Resource: res.Alias,
-			Payload:  string(res.Content),
+		b, err := json.Marshal(sseMessage{
+			Alias:   res.Alias,
+			Payload: string(res.Content),
 		})
 
 		if err == nil {
@@ -97,12 +113,6 @@ func (c *CSSEResourceCacher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeCommonHeaders(w, r)
-
-	go func() {
-		for _, r := range c.resources {
-			c.OnResourceUpdated(r)
-		}
-	}()
 
 	c.server.ServeHTTP(w, r)
 
