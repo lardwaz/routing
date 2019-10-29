@@ -28,6 +28,7 @@ type Resource struct {
 	Header         http.Header
 	StatusCode     int
 	Hash           string
+	OldHash        string
 	AllowedOrigins []string
 
 	onUpdateEvents []ResourceEvent
@@ -61,6 +62,7 @@ func (r *Resource) Fetch() error {
 		return err
 	}
 
+	r.OldHash = r.Hash
 	r.Hash = fmt.Sprintf("%x", sha1.Sum(b))
 	r.Content = b
 	r.StatusCode = resp.StatusCode

@@ -62,7 +62,7 @@ func NewCSSEResourceCacher(opts *SSEOptions) *CSSEResourceCacher {
 	})
 
 	c.OnResourceUpdated = func(res *Resource) {
-		if c.server == nil {
+		if c.server == nil || res.OldHash == res.Hash {
 			return
 		}
 
@@ -70,10 +70,11 @@ func NewCSSEResourceCacher(opts *SSEOptions) *CSSEResourceCacher {
 			Alias:   res.Alias,
 			Payload: string(res.Content),
 		})
-
-		if err == nil {
-			c.server.SendMessage(csseCommonChannel, sse.NewMessage(res.Alias+"-"+res.Hash, string(b), "message"))
+		if err != nil {
+			return
 		}
+
+		c.server.SendMessage(csseCommonChannel, sse.NewMessage(res.Alias+"-"+res.Hash, string(b), "message"))
 	}
 
 	c.OnStarted = func() {
