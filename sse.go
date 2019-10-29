@@ -41,6 +41,17 @@ func NewSSEResourceCacher(opts *SSEOptions) *SSEResourceCacher {
 			"Access-Control-Allow-Methods": "GET, OPTIONS",
 			"Access-Control-Allow-Headers": "Keep-Alive,X-Requested-With,Cache-Control,Content-Type,Last-Event-ID",
 		},
+		OnClientConnect: func(client *sse.Client) {
+			alias := client.Channel()
+
+			res, ok := c.resources[alias]
+			if !ok {
+				return
+			}
+
+			// Replay last message
+			client.SendMessage(sse.NewMessage(res.Hash, string(res.Content), "message"))
+		},
 		ChannelNameFunc: func(r *http.Request) string {
 			// Use alias query in url as channel name
 			alias, err := getAliasFromRequest(r)
